@@ -1,0 +1,9 @@
+LoadBalancer.java
+
+public synchronized Server getNextReadServer() {
+	Random random = new Random();
+	nextReadServer = random.nextInt(readQueue.size());
+	Server server = readQueue.get(nextReadServer);
+	LOG.debug("choose read server as " + server.getIp());
+	return server;
+}

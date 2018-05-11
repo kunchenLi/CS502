@@ -1,0 +1,23 @@
+Pig Stack Trace
+---------------
+ERROR 101: file 'target/pig-udf-0.0.1-SNAPSHOT.jar' does not exist.
+
+org.apache.pig.backend.executionengine.ExecException: ERROR 101: file 'target/pig-udf-0.0.1-SNAPSHOT.jar' does not exist.
+	at org.apache.pig.impl.io.FileLocalizer.fetchFilesInternal(FileLocalizer.java:821)
+	at org.apache.pig.impl.io.FileLocalizer.fetchFiles(FileLocalizer.java:767)
+	at org.apache.pig.PigServer.registerJar(PigServer.java:632)
+	at org.apache.pig.parser.RegisterResolver.parseRegister(RegisterResolver.java:54)
+	at org.apache.pig.tools.grunt.GruntParser.processRegister(GruntParser.java:464)
+	at org.apache.pig.tools.pigscript.parser.PigScriptParser.parse(PigScriptParser.java:557)
+	at org.apache.pig.tools.grunt.GruntParser.parseStopOnError(GruntParser.java:230)
+	at org.apache.pig.tools.grunt.GruntParser.parseStopOnError(GruntParser.java:205)
+	at org.apache.pig.tools.grunt.Grunt.exec(Grunt.java:81)
+	at org.apache.pig.Main.run(Main.java:630)
+	at org.apache.pig.Main.main(Main.java:175)
+	at sun.reflect.NativeMethodAccessorImpl.invoke0(Native Method)
+	at sun.reflect.NativeMethodAccessorImpl.invoke(NativeMethodAccessorImpl.java:62)
+	at sun.reflect.DelegatingMethodAccessorImpl.invoke(DelegatingMethodAccessorImpl.java:43)
+	at java.lang.reflect.Method.invoke(Method.java:498)
+	at org.apache.hadoop.util.RunJar.run(RunJar.java:239)
+	at org.apache.hadoop.util.RunJar.main(RunJar.java:153)
+================================================================================

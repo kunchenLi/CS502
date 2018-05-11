@@ -1,0 +1,10 @@
+<component name="libraryTable">
+  <library name="javalib">
+    <CLASSES>
+      <root url="file://$USER_HOME$/bittiger_cs502/project2/javalib" />
+    </CLASSES>
+    <JAVADOC />
+    <SOURCES />
+    <jarDirectory url="file://$USER_HOME$/bittiger_cs502/project2/javalib" recursive="false" />
+  </library>
+</component>

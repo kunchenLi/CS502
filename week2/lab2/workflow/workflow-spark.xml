@@ -1,0 +1,44 @@
+<workflow-app xmlns="uri:oozie:workflow:0.2" name="demo-wf">
+    <start to="spark-node"/>
+    <action name="spark-node">
+        <spark xmlns="uri:oozie:spark-action:0.1">
+            <job-tracker>${jobTracker}</job-tracker>
+            <name-node>${nameNode}</name-node>
+            <prepare>
+                <delete path="${nameNode}/user/${wf:user()}/output"/>
+            </prepare>
+            <configuration>
+                <property>
+                    <name>mapred.job.queue.name</name>
+                    <value>${queueName}</value>
+                </property>
+            </configuration>
+            <master>${master}</master>
+            <name>gettopcategory</name>
+            <class>com.example.spark.GetTopCategory</class>
+            <jar>hdfs://localhost:9000/user/hadoop/oozie/apps/gettopcategory-1.0-SNAPSHOT.jar</jar>
+            <spark-opts>--jars ${sparkLib}</spark-opts>
+        </spark>
+        <ok to="sqoop-node"/>
+        <error to="fail"/>
+    </action>
+    <action name="sqoop-node">
+        <sqoop xmlns="uri:oozie:sqoop-action:0.2">
+            <job-tracker>${jobTracker}</job-tracker>
+            <name-node>${nameNode}</name-node>
+            <configuration>
+                <property>
+                    <name>mapred.job.queue.name</name>
+                    <value>${queueName}</value>
+                </property>
+            </configuration>
+            <command>export --connect jdbc:mysql://localhost/cloudacldb --username hadoop --password hadoop --table topcategories --export-dir output --fields-terminated-by , --m 1</command>
+        </sqoop>
+        <ok to="end"/>
+        <error to="fail"/>
+    </action>
+    <kill name="fail">
+        <message>Workflow failed, error message[${wf:errorMessage(wf:lastErrorNode())}]</message>
+    </kill>
+    <end name="end"/>
+</workflow-app>

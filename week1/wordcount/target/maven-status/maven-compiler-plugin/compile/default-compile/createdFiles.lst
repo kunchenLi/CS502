@@ -1,0 +1,3 @@
+com/example/WordCount.class
+com/example/WordCount$IntSumReducer.class
+com/example/WordCount$TokenizerMapper.class

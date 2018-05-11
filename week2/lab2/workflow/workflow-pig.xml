@@ -1,0 +1,44 @@
+<workflow-app xmlns="uri:oozie:workflow:0.2" name="demo-wf">
+    <start to="pig-node"/>
+    <action name="pig-node">
+        <pig>
+            <job-tracker>${jobTracker}</job-tracker>
+            <name-node>${nameNode}</name-node>
+            <prepare>
+                <delete path="${nameNode}/user/${wf:user()}/output"/>
+            </prepare>
+            <configuration>
+                <property>
+                    <name>mapred.job.queue.name</name>
+                    <value>${queueName}</value>
+                </property>
+            </configuration>
+            <script>gettopcategory.pig</script>
+            <param>OUTPUT=/user/${wf:user()}/output</param>
+            <file>pig-udf-0.0.1-SNAPSHOT.jar</file>
+            <file>geoip-api-1.3.1.jar</file>
+            <file>GeoLiteCity.dat</file>
+        </pig>
+        <ok to="sqoop-node"/>
+        <error to="fail"/>
+    </action>
+    <action name="sqoop-node">
+        <sqoop xmlns="uri:oozie:sqoop-action:0.2">
+            <job-tracker>${jobTracker}</job-tracker>
+            <name-node>${nameNode}</name-node>
+            <configuration>
+                <property>
+                    <name>mapred.job.queue.name</name>
+                    <value>${queueName}</value>
+                </property>
+            </configuration>
+            <command>export --connect jdbc:mysql://localhost/cloudacldb --username hadoop --password hadoop --table topcategories --export-dir output --m 1</command>
+        </sqoop>
+        <ok to="end"/>
+        <error to="fail"/>
+    </action>
+    <kill name="fail">
+        <message>Workflow failed, error message[${wf:errorMessage(wf:lastErrorNode())}]</message>
+    </kill>
+    <end name="end"/>
+</workflow-app>

@@ -1,0 +1,608 @@
+commit cc7233796d1c7f14f5b96b2de4584e8b513a0c7e
+Author: Daniel Dai <daijy@hortonworks.com>
+Date:   Mon Mar 12 16:58:33 2018 -0700
+
+    Google play crawler
+
+diff --git a/build.xml b/build.xml
+index 5cff1ea..8c6d1f9 100644
+--- a/build.xml
++++ b/build.xml
+@@ -890,6 +890,8 @@
+   <!-- target: clean-build  ============================================= -->
+   <target name="clean-build" description="--> clean the project built files">
+     <delete includeemptydirs="true" dir="${build.dir}"/>
++    <delete file="conf/regex-urlfilter.txt"/>
++    <delete file="conf/nutch-site.xml"/>
+   </target>
+ 
+   <!-- target: clean-dist   ============================================= -->
+@@ -1051,6 +1053,7 @@
+         <source path="${plugins.dir}/parse-js/src/java/" />
+         <source path="${plugins.dir}/parse-metatags/src/java/" />
+         <source path="${plugins.dir}/parse-metatags/src/test/" />
++        <source path="${plugins.dir}/parse-googleplay/src/java/" />
+         <source path="${plugins.dir}/parse-swf/src/java/" />
+         <source path="${plugins.dir}/parse-swf/src/test/" />
+         <source path="${plugins.dir}/parse-tika/src/java/" />
+diff --git a/conf/nutch-site.xml.template b/conf/nutch-site.xml.template
+index 970c8fe..8a34a76 100644
+--- a/conf/nutch-site.xml.template
++++ b/conf/nutch-site.xml.template
+@@ -4,5 +4,44 @@
+ <!-- Put site-specific property overrides in this file. -->
+ 
+ <configuration>
+-
++<property>
++ <name>http.agent.name</name>
++ <value>GooglePlayCrawler</value>
++</property>
++<property>
++  <name>plugin.includes</name>
++  <value>protocol-httpclient|urlfilter-regex|parse-googleplay|index-(basic|anchor)|indexer-solr|scoring-opic|urlnormalizer-(pass|regex|basic)</value>
++  <description>Regular expression naming plugin directory names to
++  include.  Any plugin not matching this expression is excluded.
++  In any case you need at least include the nutch-extensionpoints plugin. By
++  default Nutch includes crawling just HTML and plain text via HTTP,
++  and basic indexing and search plugins. In order to use HTTPS please enable
++  protocol-httpclient, but be aware of possible intermittent problems with the
++  underlying commons-httpclient library.
++  </description>
++</property>
++<property>
++  <name>db.max.outlinks.per.page</name>
++  <value>1000</value>
++  <description>The maximum number of outlinks that we'll process for a page.
++  If this value is nonnegative (>=0), at most db.max.outlinks.per.page outlinks
++  will be processed for a page; otherwise, all outlinks will be processed.
++  </description>
++</property>
++<property>
++  <name>http.content.limit</name>
++  <value>1048576</value>
++</property>
++<property>
++  <name>parser.timeout</name>
++  <value>3600</value>
++</property>
++<property>
++  <name>fetcher.threads.fetch</name>
++  <value>20</value>
++</property>
++<property>
++  <name>mapred.reduce.tasks</name>
++  <value>10</value>
++</property>
+ </configuration>
+diff --git a/conf/parse-plugins.xml b/conf/parse-plugins.xml
+index 20c8724..56f53f8 100644
+--- a/conf/parse-plugins.xml
++++ b/conf/parse-plugins.xml
+@@ -68,6 +68,10 @@
+ 		<plugin id="feed" />
+ 	</mimeType>
+ 
++        <mimeType name="text/html">
++                <plugin id="parse-googleplay" />
++        </mimeType>
++
+        <!-- Types for parse-ext plugin: required for unit tests to pass. -->
+ 
+ 	<mimeType name="application/vnd.nutch.example.cat">
+@@ -86,6 +90,8 @@
+ 		<alias name="parse-ext" extension-id="ExtParser" />
+ 		<alias name="parse-html"
+ 			extension-id="org.apache.nutch.parse.html.HtmlParser" />
++                <alias name="parse-googleplay"
++                        extension-id="com.example.googleplay.GoogleplayParser" />
+ 		<alias name="parse-js" extension-id="JSParser" />
+ 		<alias name="feed"
+ 			extension-id="org.apache.nutch.parse.feed.FeedParser" />
+diff --git a/conf/regex-urlfilter.txt.template b/conf/regex-urlfilter.txt.template
+index 78b2b31..5b0eb81 100644
+--- a/conf/regex-urlfilter.txt.template
++++ b/conf/regex-urlfilter.txt.template
+@@ -30,10 +30,10 @@
+ -\.(gif|GIF|jpg|JPG|png|PNG|ico|ICO|css|CSS|sit|SIT|eps|EPS|wmf|WMF|zip|ZIP|ppt|PPT|mpg|MPG|xls|XLS|gz|GZ|rpm|RPM|tgz|TGZ|mov|MOV|exe|EXE|jpeg|JPEG|bmp|BMP|js|JS)$
+ 
+ # skip URLs containing certain characters as probable queries, etc.
+--[?*!@=]
++#-[?*!@=]
+ 
+ # skip URLs with slash-delimited segment that repeats 3+ times, to break loops
+--.*(/[^/]+)/[^/]+\1/[^/]+\1/
++#-.*(/[^/]+)/[^/]+\1/[^/]+\1/
+ 
+ # accept anything else
+ +.
+diff --git a/src/java/org/apache/nutch/googleplay/GooglePlayCrawler.java b/src/java/org/apache/nutch/googleplay/GooglePlayCrawler.java
+new file mode 100644
+index 0000000..40bdf8e
+--- /dev/null
++++ b/src/java/org/apache/nutch/googleplay/GooglePlayCrawler.java
+@@ -0,0 +1,122 @@
++/**
++ * Licensed to the Apache Software Foundation (ASF) under one or more
++ * contributor license agreements.  See the NOTICE file distributed with
++ * this work for additional information regarding copyright ownership.
++ * The ASF licenses this file to You under the Apache License, Version 2.0
++ * (the "License"); you may not use this file except in compliance with
++ * the License.  You may obtain a copy of the License at
++ *
++ *     http://www.apache.org/licenses/LICENSE-2.0
++ *
++ * Unless required by applicable law or agreed to in writing, software
++ * distributed under the License is distributed on an "AS IS" BASIS,
++ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
++ * See the License for the specific language governing permissions and
++ * limitations under the License.
++ */
++
++package org.apache.nutch.googleplay;
++
++// Commons Logging imports
++import org.slf4j.Logger;
++import org.slf4j.LoggerFactory;
++
++import org.apache.hadoop.fs.*;
++import org.apache.hadoop.conf.*;
++import org.apache.hadoop.mapred.*;
++import org.apache.hadoop.util.Tool;
++import org.apache.hadoop.util.ToolRunner;
++import org.apache.nutch.crawl.*;
++import org.apache.nutch.parse.ParseSegment;
++import org.apache.nutch.util.NutchConfiguration;
++import org.apache.nutch.util.NutchJob;
++
++import org.apache.nutch.fetcher.Fetcher;
++
++public class GooglePlayCrawler extends Configured implements Tool {
++  public static final Logger LOG = LoggerFactory.getLogger(GooglePlayCrawler.class);
++
++  /* Perform complete crawling and indexing (to Solr) given a set of root urls and the -solr
++     parameter respectively. More information and Usage parameters can be found below. */
++  public static void main(String args[]) throws Exception {
++    Configuration conf = NutchConfiguration.create();
++    int res = ToolRunner.run(conf, new GooglePlayCrawler(), args);
++    System.exit(res);
++  }
++  
++  @Override
++  public int run(String[] args) throws Exception {
++    if (args.length < 1) {
++      System.out.println
++      ("Usage: Crawl <urlDir> [-dir d] [-depth i] [-numFetchers n]");
++      return -1;
++    }
++    Path rootUrlDir = null;
++    Path dir = new Path("nutchdb");
++    Path finalOutput = null;
++    int threads = getConf().getInt("fetcher.threads.fetch", 10);
++    int depth = 2;
++    int numFetchers = 200;
++    
++    for (int i = 0; i < args.length; i++) {
++      if ("-dir".equals(args[i])) {
++        dir = new Path(args[i+1]);
++        i++;
++      } else if ("-depth".equals(args[i])) {
++        depth = Integer.parseInt(args[i+1]);
++        i++;
++      } else if ("-numFetchers".equals(args[i])) {
++        numFetchers = Integer.parseInt(args[i+1]);
++        i++;
++      } else if ("-finalOutput".equals(args[i])) {
++        finalOutput =  new Path(args[i+1]);
++        i++;
++      } else if (args[i] != null) {
++        rootUrlDir = new Path(args[i]);
++      }
++    }
++    
++    JobConf job = new NutchJob(getConf());
++
++    if (LOG.isInfoEnabled()) {
++      LOG.info("crawl started in: " + dir);
++      LOG.info("rootUrlDir = " + rootUrlDir);
++      LOG.info("depth = " + depth);      
++      LOG.info("numFetchers =" + numFetchers);
++    }
++    
++    Path crawlDb = new Path("nutchdb");
++    Path segments = new Path(dir + "/segments");
++
++    Injector injector = new Injector(getConf());
++    Generator generator = new Generator(getConf());
++    Fetcher fetcher = new Fetcher(getConf());
++    ParseSegment parseSegment = new ParseSegment(getConf());
++    CrawlDb crawlDbTool = new CrawlDb(getConf());
++      
++    // initialize crawlDb
++    injector.inject(crawlDb, rootUrlDir);
++    int i;
++    for (i = 0; i < depth; i++) {             // generate new segment
++      Path[] segs = generator.generate(crawlDb, segments, numFetchers, Long.MAX_VALUE, System
++          .currentTimeMillis());
++      if (segs == null) {
++        LOG.info("Stopping at depth=" + i + " - no more URLs to fetch.");
++        break;
++      }
++      fetcher.fetch(segs[0], threads);  // fetch it
++      if (!Fetcher.isParsing(job)) {
++        parseSegment.parse(segs[0]);    // parse it, if needed
++      }
++      crawlDbTool.update(crawlDb, segs, true, true); // update crawldb
++    }
++    if (i == 0) {
++      LOG.warn("No URLs to fetch - check your seed list and URL filters.");
++    }
++    if (LOG.isInfoEnabled()) { LOG.info("crawl finished: " + dir); }
++    if (finalOutput != null) {
++        FsShell.main(new String[] {"-cp", dir.toString(), finalOutput.toString()});
++    }
++    return 0;
++  }
++}
+diff --git a/src/plugin/build.xml b/src/plugin/build.xml
+index 75ae2e7..5742403 100755
+--- a/src/plugin/build.xml
++++ b/src/plugin/build.xml
+@@ -62,6 +62,7 @@
+      <ant dir="parse-js" target="deploy"/>
+      <ant dir="parse-html" target="deploy"/>
+      <ant dir="parse-metatags" target="deploy"/>
++     <ant dir="parse-googleplay" target="deploy"/>
+      <ant dir="parse-swf" target="deploy"/>
+      <ant dir="parse-tika" target="deploy"/>
+      <ant dir="parse-zip" target="deploy"/>
+@@ -115,6 +116,7 @@
+      <ant dir="feed" target="test"/>
+      <ant dir="parse-html" target="test"/>
+      <ant dir="parse-metatags" target="test"/>
++     <ant dir="parse-googleplay" target="test"/>
+      <ant dir="parse-swf" target="test"/>
+      <ant dir="parse-tika" target="test"/>
+      <ant dir="parse-zip" target="test"/>
+@@ -181,6 +183,7 @@
+     <ant dir="parse-js" target="clean"/>
+     <ant dir="parse-html" target="clean"/>
+     <ant dir="parse-metatags" target="clean"/>
++    <ant dir="parse-googleplay" target="clean"/>
+     <ant dir="parse-swf" target="clean"/>
+     <ant dir="parse-tika" target="clean"/>
+     <ant dir="parse-zip" target="clean"/>
+diff --git a/src/plugin/parse-googleplay/build.xml b/src/plugin/parse-googleplay/build.xml
+new file mode 100644
+index 0000000..7e78ea2
+--- /dev/null
++++ b/src/plugin/parse-googleplay/build.xml
+@@ -0,0 +1,28 @@
++<?xml version="1.0"?>
++<!--
++ Licensed to the Apache Software Foundation (ASF) under one or more
++ contributor license agreements.  See the NOTICE file distributed with
++ this work for additional information regarding copyright ownership.
++ The ASF licenses this file to You under the Apache License, Version 2.0
++ (the "License"); you may not use this file except in compliance with
++ the License.  You may obtain a copy of the License at
++
++     http://www.apache.org/licenses/LICENSE-2.0
++
++ Unless required by applicable law or agreed to in writing, software
++ distributed under the License is distributed on an "AS IS" BASIS,
++ WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
++ See the License for the specific language governing permissions and
++ limitations under the License.
++-->
++<project name="parse-googleplay" default="jar-core">
++
++  <import file="../build-plugin.xml"/>
++
++  <!-- Deploy Unit test dependencies -->
++  <target name="deps-test">
++    <ant target="deploy" inheritall="false" dir="../nutch-extensionpoints"/>
++    <ant target="deploy" inheritall="false" dir="../protocol-file"/>
++  </target>
++
++</project>
+diff --git a/src/plugin/parse-googleplay/ivy.xml b/src/plugin/parse-googleplay/ivy.xml
+new file mode 100644
+index 0000000..1a86d68
+--- /dev/null
++++ b/src/plugin/parse-googleplay/ivy.xml
+@@ -0,0 +1,41 @@
++<?xml version="1.0" ?>
++
++<!--
++   Licensed to the Apache Software Foundation (ASF) under one or more
++   contributor license agreements.  See the NOTICE file distributed with
++   this work for additional information regarding copyright ownership.
++   The ASF licenses this file to You under the Apache License, Version 2.0
++   (the "License"); you may not use this file except in compliance with
++   the License.  You may obtain a copy of the License at
++
++       http://www.apache.org/licenses/LICENSE-2.0
++
++   Unless required by applicable law or agreed to in writing, software
++   distributed under the License is distributed on an "AS IS" BASIS,
++   WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
++   See the License for the specific language governing permissions and
++   limitations under the License.
++-->
++
++<ivy-module version="1.0">
++  <info organisation="org.apache.nutch" module="${ant.project.name}">
++    <license name="Apache 2.0"/>
++    <ivyauthor name="Apache Nutch Team" url="http://nutch.apache.org"/>
++    <description>
++        Apache Nutch
++    </description>
++  </info>
++
++  <configurations>
++    <include file="../../..//ivy/ivy-configurations.xml"/>
++  </configurations>
++
++  <publications>
++    <!--get the artifact from our module name-->
++    <artifact conf="master"/>
++  </publications>
++
++  <dependencies>
++  </dependencies>
++  
++</ivy-module>
+diff --git a/src/plugin/parse-googleplay/plugin.xml b/src/plugin/parse-googleplay/plugin.xml
+new file mode 100644
+index 0000000..4b3d354
+--- /dev/null
++++ b/src/plugin/parse-googleplay/plugin.xml
+@@ -0,0 +1,47 @@
++<?xml version="1.0" encoding="UTF-8"?>
++<!--
++ Licensed to the Apache Software Foundation (ASF) under one or more
++ contributor license agreements.  See the NOTICE file distributed with
++ this work for additional information regarding copyright ownership.
++ The ASF licenses this file to You under the Apache License, Version 2.0
++ (the "License"); you may not use this file except in compliance with
++ the License.  You may obtain a copy of the License at
++
++     http://www.apache.org/licenses/LICENSE-2.0
++
++ Unless required by applicable law or agreed to in writing, software
++ distributed under the License is distributed on an "AS IS" BASIS,
++ WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
++ See the License for the specific language governing permissions and
++ limitations under the License.
++-->
++<plugin
++   id="parse-googleplay"
++   name="Goolge play store parser"
++   version="1.0.0"
++   provider-name="example.com">
++
++
++   <runtime>
++      <library name="parse-googleplay.jar">
++         <export name="*"/>
++      </library>
++   </runtime>
++
++   <requires>
++      <import plugin="nutch-extensionpoints"/>
++   </requires>
++
++   <extension id="com.example.googleplay"
++              name="GoogleplayParser"
++              point="org.apache.nutch.parse.Parser">
++
++      <implementation id="com.example.googleplay.GoogleplayParser"
++                      class="com.example.googleplay.GoogleplayParser">
++        <parameter name="contentType" value="text/html"/>
++        <parameter name="pathSuffix"  value=""/>
++      </implementation>
++      
++   </extension>
++
++</plugin>
+diff --git a/src/plugin/parse-googleplay/src/java/com/example/googleplay/GoogleplayParser.java b/src/plugin/parse-googleplay/src/java/com/example/googleplay/GoogleplayParser.java
+new file mode 100644
+index 0000000..fa545c3
+--- /dev/null
++++ b/src/plugin/parse-googleplay/src/java/com/example/googleplay/GoogleplayParser.java
+@@ -0,0 +1,194 @@
++package com.example.googleplay;
++
++import java.net.MalformedURLException;
++import java.util.ArrayList;
++import java.util.HashSet;
++import java.util.List;
++import java.util.Set;
++import java.util.regex.Matcher;
++import java.util.regex.Pattern;
++
++import org.apache.hadoop.conf.Configuration;
++import org.apache.nutch.metadata.Metadata;
++import org.apache.nutch.parse.Outlink;
++import org.apache.nutch.parse.ParseData;
++import org.apache.nutch.parse.ParseImpl;
++import org.apache.nutch.parse.ParseResult;
++import org.apache.nutch.parse.ParseStatus;
++import org.apache.nutch.parse.Parser;
++import org.apache.nutch.protocol.Content;
++import org.slf4j.Logger;
++import org.slf4j.LoggerFactory;
++
++public class GoogleplayParser implements Parser {
++    public static final Logger LOG = LoggerFactory.getLogger("org.apache.nutch.parse.googleplay");
++    static Pattern appUrlPattern = Pattern.compile("https://play.google.com/store/apps/details\\?id=[a-zA-Z0-9\\._]+");
++    static Pattern titlePattern = Pattern.compile("<title.*?>(.*?)</title>");
++    static Pattern appNamePattern= Pattern.compile("<div class=\"document-title\" itemprop=\"name\"> <div.*?>(.*?)</div");
++    static Pattern linkPattern = Pattern.compile("href=\"/store/apps/details\\?id=([a-zA-Z0-9\\._]+)");
++    static Pattern publisherPattern = Pattern.compile("<span itemprop=\"name\">(.*?)</span>");
++    static Pattern updateTimePattern = Pattern.compile("<div class=\"document-subtitle\">- (.*?)</div>");
++    static Pattern categoryPattern = Pattern.compile("<span itemprop=\"genre\">(.*?)</span>");
++    static Pattern pricePattern = Pattern.compile("<meta content=\"(\\d*?)\" itemprop=\"price\">");
++    static Pattern reviewPattern = Pattern.compile("<div class=\"score-container\"(.*?)<meta content=\"(.*?)\" itemprop=\"ratingValue\">(.*?)<meta content=\"(.*)?\" itemprop=\"ratingCount\">");
++    static Pattern installPattern = Pattern.compile("<div class=\"content\" itemprop=\"numDownloads\">(.*?)</div>");
++    static Pattern versionPattern = Pattern.compile("<div class=\"content\" itemprop=\"softwareVersion\">(.*?)</div>");
++    static Pattern ratingPattern = Pattern.compile("<div class=\"content\" itemprop=\"contentRating\">(.*?)</div>");
++    static Pattern developerSitePattern = Pattern.compile("<a class=\"dev-link\" href=\"https://www.google.com/url\\?q=(.*?)&");
++    static Pattern developerEmailPattern = Pattern.compile("<a class=\"dev-link\" href=\"mailto:(.*?)\"");
++    static Pattern descriptionPattern = Pattern.compile("<div class=\"show-more-content text-body\" itemprop=\"description\" tabindex=\"0\"> <div jsname=\"C4s9Ed\">(.*?)</div>");
++
++    private Configuration conf;
++
++    @Override
++    public Configuration getConf() {
++        return conf;
++    }
++
++    @Override
++    public void setConf(Configuration conf) {
++        this.conf = conf;
++    }
++
++    @Override
++    public ParseResult getParse(Content content) {
++        String thisId = content.getBaseUrl().substring(content.getBaseUrl().indexOf("=")+1);
++        byte[] contentInOctets = content.getContent();
++        String htmlText = new String(contentInOctets);
++        
++        Metadata meta = content.getMetadata();
++        
++        String title = null;
++        String appName = null;
++        Set<String> ids = new HashSet<String>();
++        String publisher = null;
++        String updateTime = null;
++        String category = null;
++        String price = null;
++        String reviewScore = null;
++        String reviewCount = null;
++        String install = null;
++        String version = null;
++        String rating = null;
++        String developerSite = null;
++        String developerEmail = null;
++        String description = null;
++        
++        Matcher m = titlePattern.matcher(htmlText);
++        if (m.find()) {
++            title = m.group(1);
++        }
++        
++        m = linkPattern.matcher(htmlText);
++        while (m.find()) {
++            if (!m.group(1).equals(thisId)) {
++                ids.add(m.group(1));
++            }
++        }
++        List<Outlink> outlinks = new ArrayList<Outlink>();
++        for (String id : ids) {
++            try {
++                outlinks.add(new Outlink("https://play.google.com/store/apps/details?id=" + id, ""));
++            } catch (MalformedURLException mue) {
++                LOG.warn("Invalid url: '" + id + "', skipping.");
++            }
++        }
++        
++        m = appUrlPattern.matcher(content.getBaseUrl());
++        if (m.matches()) {  // App page
++            m = appNamePattern.matcher(htmlText);
++            if (m.find()) {
++                appName = m.group(1);
++            }
++            meta.set("name", appName);
++            
++            m = publisherPattern.matcher(htmlText);
++            if (m.find()) {
++                publisher = m.group(1);
++            }
++            meta.set("publisher", publisher!=null?publisher:"");
++            
++            m = updateTimePattern.matcher(htmlText);
++            if (m.find()) {
++                updateTime = m.group(1);
++            }
++            meta.set("updateTime", updateTime!=null?updateTime:"");
++            
++            m = categoryPattern.matcher(htmlText);
++            if (m.find()) {
++                category = m.group(1);
++                category = category.replace("&amp;", "and");
++            }
++            meta.set("category", category!=null?category:"");
++            
++            m = pricePattern.matcher(htmlText);
++            if (m.find()) {
++                price = m.group(1);
++            }
++            meta.set("price", price!=null?price:"");
++            
++            m = reviewPattern.matcher(htmlText);
++            if (m.find()) {
++                reviewScore = m.group(2);
++                reviewCount = m.group(4);
++            }
++            meta.set("reviewScore", reviewScore!=null?reviewScore:"");
++            meta.set("reviewCount", reviewCount!=null?reviewCount:"");
++            
++            m = installPattern.matcher(htmlText);
++            if (m.find()) {
++                install = m.group(1)!=null?m.group(1):"";
++                install = install.trim();
++            }
++            meta.set("install", install);
++            
++            m = versionPattern.matcher(htmlText);
++            if (m.find()) {
++                version = m.group(1)!=null?m.group(1):"";
++                version = version.trim();
++            }
++            meta.set("version", version);
++            
++            m = ratingPattern.matcher(htmlText);
++            if (m.find()) {
++                rating = m.group(1)!=null?m.group(1):"";
++                rating = rating.trim();
++            }
++            meta.set("rating", rating);
++            
++            m = developerSitePattern.matcher(htmlText);
++            if (m.find()) {
++                developerSite = m.group(1)!=null?m.group(1):"";
++                developerSite = developerSite.trim();
++            }
++            meta.set("developerSite", developerSite);
++            
++            m = developerEmailPattern.matcher(htmlText);
++            if (m.find()) {
++                developerEmail = m.group(1)!=null?m.group(1):"";
++                developerEmail = developerEmail.trim();
++            }
++            meta.set("developerEmail", developerEmail);
++            
++            m = descriptionPattern.matcher(htmlText);
++            if (m.find()) {
++                description = m.group(1);
++            }
++            meta.set("description", description!=null?description:"");
++        }
++
++        ParseStatus status = ParseStatus.STATUS_SUCCESS;
++        if (title == null) {
++            status = ParseStatus.STATUS_FAILURE;
++        }
++        ParseData parseData = new ParseData(status, title,
++                outlinks.toArray(new Outlink[0]), meta);
++        ParseResult parseResult = ParseResult.createParseResult(content.getUrl(), 
++                new ParseImpl("", parseData));
++        try {
++            Thread.sleep(200);
++        } catch (InterruptedException e) {
++        }
++        return parseResult;
++    }
++}

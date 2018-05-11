@@ -1,0 +1,15 @@
+ssh -i "~/Downloads/AWSKeyPair.pem" ubuntu@18.218.243.175
+ubuntu@ip-172-31-43-14:~$ cd java-tpcw/
+ubuntu@ip-172-31-43-14:~/java-tpcw$ vi sql-mysql.properties 
+
+
+sql.getBestSellers="SELECT i_id, i_title, a_fname, a_lname " +\
+                 "FROM item, author, order_line " +\
+                 "WHERE item.i_id = order_line.ol_i_id " +\
+                 "AND item.i_a_id = author.a_id " +\
+                 "AND order_line.ol_o_id > (SELECT MAX(o_id)-3333 FROM orders)" +\
+                 "AND item.i_subject = ? " +\
+                 "GROUP BY i_id, i_title, a_fname, a_lname " +\
+                 "ORDER BY SUM(ol_qty) DESC " +\
+                 "FETCH FIRST 10 ROWS ONLY "
+      

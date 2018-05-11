@@ -1,0 +1,33 @@
+diff --git a/week1/wordcount/src/java/com/example/WordCount.java b/week1/wordcount/src/java/com/example/WordCount.java
+index 6d47026..6af3784 100644
+--- a/week1/wordcount/src/java/com/example/WordCount.java
++++ b/week1/wordcount/src/java/com/example/WordCount.java
+@@ -36,15 +36,18 @@ public class WordCount {
+   public static class TokenizerMapper 
+        extends Mapper<Object, Text, Text, IntWritable>{
+     
+-    private final static IntWritable one = new IntWritable(1);
+     private Text word = new Text();
++    int multiplier = -1;
+ 
+     public void map(Object key, Text value, Context context
+                     ) throws IOException, InterruptedException {
++      if (multiplier == -1) {
++        multiplier = context.getConfiguration().getInt("multiplier", -1);
++      }
+       StringTokenizer itr = new StringTokenizer(value.toString());
+       while (itr.hasMoreTokens()) {
+         word.set(itr.nextToken());
+-        context.write(word, one);
++        context.write(word, new IntWritable(multiplier));
+       }
+     }
+   }
+@@ -72,6 +75,7 @@ public class WordCount {
+       System.err.println("Usage: wordcount <in> [<in>...] <out>");
+       System.exit(2);
+     }
++    conf.setInt("multiplier", 2);
+     Job job = Job.getInstance(conf, "word count");
+     job.setJarByClass(WordCount.class);
+     job.setMapperClass(TokenizerMapper.class);

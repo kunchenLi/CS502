@@ -1,0 +1,39 @@
+diff --git a/week1/wordcount/src/java/com/example/WordCount.java b/week1/wordcount/src/java/com/example/WordCount.java
+index 6d47026..bb7127a 100644
+--- a/week1/wordcount/src/java/com/example/WordCount.java
++++ b/week1/wordcount/src/java/com/example/WordCount.java
+@@ -24,6 +24,7 @@ import org.apache.hadoop.conf.Configuration;
+ import org.apache.hadoop.fs.Path;
+ import org.apache.hadoop.io.IntWritable;
+ import org.apache.hadoop.io.Text;
++import org.apache.hadoop.mapreduce.Counters;
+ import org.apache.hadoop.mapreduce.Job;
+ import org.apache.hadoop.mapreduce.Mapper;
+ import org.apache.hadoop.mapreduce.Reducer;
+@@ -32,12 +33,14 @@ import org.apache.hadoop.mapreduce.lib.output.FileOutputFormat;
+ import org.apache.hadoop.util.GenericOptionsParser;
+ 
+ public class WordCount {
++  enum WordRange {A_M, N_Z}
+ 
+   public static class TokenizerMapper 
+        extends Mapper<Object, Text, Text, IntWritable>{
+     
+     private final static IntWritable one = new IntWritable(1);
+     private Text word = new Text();
++    Counters counters = new Counters();
+ 
+     public void map(Object key, Text value, Context context
+                     ) throws IOException, InterruptedException {
+@@ -45,6 +48,11 @@ public class WordCount {
+       while (itr.hasMoreTokens()) {
+         word.set(itr.nextToken());
+         context.write(word, one);
++        if (word.toString().toUpperCase().compareTo("N") < 0) {
++            context.getCounter(WordRange.A_M).increment(1);
++        } else {
++            context.getCounter(WordRange.N_Z).increment(1);
++        }
+       }
+     }
+   }

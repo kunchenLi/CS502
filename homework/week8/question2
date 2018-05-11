@@ -1,0 +1,3 @@
+UserSeesion.java
+Class.forName(classname).newInstance(); 
+get the query class using the full name

@@ -1,0 +1,47 @@
+diff --git a/week1/wordcount/pom.xml b/week1/wordcount/pom.xml
+index 416f1d4..5c73b93 100644
+--- a/week1/wordcount/pom.xml
++++ b/week1/wordcount/pom.xml
+@@ -33,6 +33,12 @@
+             <version>2.7.3</version>
+         </dependency>
+ 
++        <dependency>
++            <groupId>dk.brics.automaton</groupId>
++            <artifactId>automaton</artifactId>
++            <version>1.11-8</version>
++        </dependency>
++
+     </dependencies>
+ 
+ </project>
+diff --git a/week1/wordcount/src/java/com/example/WordCount.java b/week1/wordcount/src/java/com/example/WordCount.java
+index 6d47026..23a7f24 100644
+--- a/week1/wordcount/src/java/com/example/WordCount.java
++++ b/week1/wordcount/src/java/com/example/WordCount.java
+@@ -31,6 +31,9 @@ import org.apache.hadoop.mapreduce.lib.input.FileInputFormat;
+ import org.apache.hadoop.mapreduce.lib.output.FileOutputFormat;
+ import org.apache.hadoop.util.GenericOptionsParser;
+ 
++import dk.brics.automaton.Automaton;
++import dk.brics.automaton.RegExp;
++
+ public class WordCount {
+ 
+   public static class TokenizerMapper 
+@@ -42,9 +45,13 @@ public class WordCount {
+     public void map(Object key, Text value, Context context
+                     ) throws IOException, InterruptedException {
+       StringTokenizer itr = new StringTokenizer(value.toString());
++      Automaton automaton = new RegExp("h(.*)").toAutomaton();
+       while (itr.hasMoreTokens()) {
+-        word.set(itr.nextToken());
+-        context.write(word, one);
++        String w = itr.nextToken();
++        if (automaton.run(w)) {
++          word.set(w);
++          context.write(word, one);
++        }
+       }
+     }
+   }

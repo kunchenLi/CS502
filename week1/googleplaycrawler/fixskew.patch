@@ -1,0 +1,55 @@
+commit 7cf95ef3bd61497a4359f091406c8c3e186fb06b
+Author: Daniel Dai <daijy@hortonworks.com>
+Date:   Thu Feb 9 22:00:45 2017 -0800
+
+    Fix skew
+
+diff --git a/conf/nutch-site.xml.template b/conf/nutch-site.xml.template
+index 85dc30b..7ae16d2 100644
+--- a/conf/nutch-site.xml.template
++++ b/conf/nutch-site.xml.template
+@@ -37,6 +37,10 @@
+   <value>3600</value>
+ </property>
+ <property>
++  <name>partition.url.mode</name>
++  <value>byURL</value>
++</property>
++<property>
+   <name>fetcher.threads.fetch</name>
+   <value>20</value>
+ </property>
+diff --git a/src/java/org/apache/nutch/crawl/URLPartitioner.java b/src/java/org/apache/nutch/crawl/URLPartitioner.java
+index 4675f83..eb6844b 100644
+--- a/src/java/org/apache/nutch/crawl/URLPartitioner.java
++++ b/src/java/org/apache/nutch/crawl/URLPartitioner.java
+@@ -42,6 +42,7 @@ public class URLPartitioner implements Partitioner<Text, Writable> {
+   public static final String PARTITION_MODE_HOST = "byHost";
+   public static final String PARTITION_MODE_DOMAIN = "byDomain";
+   public static final String PARTITION_MODE_IP = "byIP";
++  public static final String PARTITION_MODE_URL = "byURL";
+ 
+   private int seed;
+   private URLNormalizers normalizers;
+@@ -52,7 +53,7 @@ public class URLPartitioner implements Partitioner<Text, Writable> {
+     mode = job.get(PARTITION_MODE_KEY, PARTITION_MODE_HOST);
+     // check that the mode is known
+     if (!mode.equals(PARTITION_MODE_IP) && !mode.equals(PARTITION_MODE_DOMAIN)
+-        && !mode.equals(PARTITION_MODE_HOST)) {
++        && !mode.equals(PARTITION_MODE_HOST) && !mode.equals(PARTITION_MODE_URL)) {
+       LOG.error("Unknown partition mode : " + mode + " - forcing to byHost");
+       mode = PARTITION_MODE_HOST;
+     }
+@@ -71,7 +72,11 @@ public class URLPartitioner implements Partitioner<Text, Writable> {
+       urlString = normalizers.normalize(urlString,
+           URLNormalizers.SCOPE_PARTITION);
+       url = new URL(urlString);
+-      hashCode = url.getHost().hashCode();
++      if (mode.equals(PARTITION_MODE_URL)) {
++          hashCode = url.toString().hashCode();
++      } else {
++          hashCode = url.getHost().hashCode();
++      }
+     } catch (MalformedURLException e) {
+       LOG.warn("Malformed URL: '" + urlString + "'");
+     }

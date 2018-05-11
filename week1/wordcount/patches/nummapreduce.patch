@@ -1,0 +1,13 @@
+diff --git a/week1/wordcount/src/java/com/example/WordCount.java b/week1/wordcount/src/java/com/example/WordCount.java
+index 954aaab..96f77b0 100644
+--- a/week1/wordcount/src/java/com/example/WordCount.java
++++ b/week1/wordcount/src/java/com/example/WordCount.java
+@@ -67,6 +67,8 @@ public class WordCount {
+ 
+   public static void main(String[] args) throws Exception {
+     Configuration conf = new Configuration();
++    conf.setInt("mapred.max.split.size", 10);
++    conf.setInt("mapred.reduce.tasks", 2);
+     String[] otherArgs = new GenericOptionsParser(conf, args).getRemainingArgs();
+     if (otherArgs.length < 2) {
+       System.err.println("Usage: wordcount <in> [<in>...] <out>");
